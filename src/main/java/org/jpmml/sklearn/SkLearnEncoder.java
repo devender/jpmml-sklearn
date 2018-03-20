@@ -18,13 +18,6 @@
  */
 package org.jpmml.sklearn;
 
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
 import org.dmg.pmml.DataDictionary;
 import org.dmg.pmml.DataField;
 import org.dmg.pmml.DataType;
@@ -41,133 +34,150 @@ import org.jpmml.converter.ModelEncoder;
 import org.jpmml.converter.Schema;
 import org.jpmml.converter.WildcardFeature;
 import org.jpmml.converter.mining.MiningModelUtil;
+
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 import sklearn.Transformer;
 
 public class SkLearnEncoder extends ModelEncoder {
 
-	private List<Model> transformers = new ArrayList<>();
+    private List<Model> transformers = new ArrayList<>();
 
-	private Map<FieldName, UnivariateStats> univariateStats = new LinkedHashMap<>();
+    private Map<FieldName, UnivariateStats> univariateStats = new LinkedHashMap<>();
 
 
-	@Override
-	public PMML encodePMML(Model model){
+    @Override
+    public PMML encodePMML(Model model) {
 
-		if(this.transformers.size() > 0){
-			List<Model> models = new ArrayList<>(this.transformers);
-			models.add(model);
+        if (this.transformers.size() > 0) {
+            List<Model> models = new ArrayList<>(this.transformers);
+            models.add(model);
 
-			Schema schema = new Schema(null, Collections.<Feature>emptyList());
+            Schema schema = new Schema(null, Collections.<Feature>emptyList());
 
-			model = MiningModelUtil.createModelChain(models, schema);
-		}
+            model = MiningModelUtil.createModelChain(models, schema);
+        }
 
-		PMML pmml = super.encodePMML(model);
+        PMML pmml = super.encodePMML(model);
 
-		DataDictionary dataDictionary = pmml.getDataDictionary();
+        DataDictionary dataDictionary = pmml.getDataDictionary();
 
-		List<DataField> dataFields = dataDictionary.getDataFields();
-		for(DataField dataField : dataFields){
-			UnivariateStats univariateStats = getUnivariateStats(dataField.getName());
+        if (model.getModelStats() == null) {
+            model.setModelStats(new ModelStats());
+        }
+        ModelStats modelStats = model.getModelStats();
 
-			if(univariateStats == null){
-				continue;
-			}
+        dataDictionary.getDataFields().parallelStream().forEach(
+                dataField -> {
+                    UnivariateStats univariateStats = getUnivariateStats(dataField.getName());
 
-			ModelStats modelStats = model.getModelStats();
-			if(modelStats == null){
-				modelStats = new ModelStats();
+                    if (univariateStats != null) {
+                        modelStats.addUnivariateStats(univariateStats);
+                    }
+                }
+        );
 
-				model.setModelStats(modelStats);
-			}
+        /*List<DataField> dataFields = dataDictionary.getDataFields();
+        for (DataField dataField : dataFields) {
+            UnivariateStats univariateStats = getUnivariateStats(dataField.getName());
 
-			modelStats.addUnivariateStats(univariateStats);
-		}
+            if (univariateStats == null) {
+                continue;
+            }
 
-		return pmml;
-	}
 
-	public void updateFeatures(List<Feature> features, Transformer transformer){
-		OpType opType;
-		DataType dataType;
+            modelStats.addUnivariateStats(univariateStats);
+        }*/
 
-		try {
-			opType = transformer.getOpType();
-			dataType = transformer.getDataType();
-		} catch(UnsupportedOperationException uoe){
-			return;
-		}
+        return pmml;
+    }
 
-		for(Feature feature : features){
+    public void updateFeatures(List<Feature> features, Transformer transformer) {
+        OpType opType;
+        DataType dataType;
 
-			if(feature instanceof WildcardFeature){
-				WildcardFeature wildcardFeature = (WildcardFeature)feature;
+        try {
+            opType = transformer.getOpType();
+            dataType = transformer.getDataType();
+        } catch (UnsupportedOperationException uoe) {
+            return;
+        }
 
-				updateType(wildcardFeature.getName(), opType, dataType);
-			}
-		}
-	}
+        for (Feature feature : features) {
 
-	public void updateType(FieldName name, OpType opType, DataType dataType){
-		DataField dataField = getDataField(name);
+            if (feature instanceof WildcardFeature) {
+                WildcardFeature wildcardFeature = (WildcardFeature) feature;
 
-		if(dataField == null){
-			throw new IllegalArgumentException(name.getValue());
-		}
+                updateType(wildcardFeature.getName(), opType, dataType);
+            }
+        }
+    }
 
-		dataField.setOpType(opType);
-		dataField.setDataType(dataType);
-	}
+    public void updateType(FieldName name, OpType opType, DataType dataType) {
+        DataField dataField = getDataField(name);
 
-	public DataField createDataField(FieldName name){
-		return createDataField(name, OpType.CONTINUOUS, DataType.DOUBLE);
-	}
+        if (dataField == null) {
+            throw new IllegalArgumentException(name.getValue());
+        }
 
-	public DerivedField createDerivedField(FieldName name, Expression expression){
-		return createDerivedField(name, OpType.CONTINUOUS, DataType.DOUBLE, expression);
-	}
+        dataField.setOpType(opType);
+        dataField.setDataType(dataType);
+    }
 
-	public void renameFeature(Feature feature, FieldName renamedName){
-		FieldName name = feature.getName();
+    public DataField createDataField(FieldName name) {
+        return createDataField(name, OpType.CONTINUOUS, DataType.DOUBLE);
+    }
 
-		DerivedField derivedField = getDerivedField(name);
-		if(derivedField == null){
-			throw new IllegalArgumentException(name.getValue());
-		}
+    public DerivedField createDerivedField(FieldName name, Expression expression) {
+        return createDerivedField(name, OpType.CONTINUOUS, DataType.DOUBLE, expression);
+    }
 
-		Map<FieldName, DerivedField> derivedFields = getDerivedFields();
-		derivedFields.remove(name);
+    public void renameFeature(Feature feature, FieldName renamedName) {
+        FieldName name = feature.getName();
 
-		try {
-			Field field = Feature.class.getDeclaredField("name");
+        DerivedField derivedField = getDerivedField(name);
+        if (derivedField == null) {
+            throw new IllegalArgumentException(name.getValue());
+        }
 
-			if(!field.isAccessible()){
-				field.setAccessible(true);
-			}
+        Map<FieldName, DerivedField> derivedFields = getDerivedFields();
+        derivedFields.remove(name);
 
-			field.set(feature, renamedName);
-		} catch(ReflectiveOperationException roe){
-			throw new RuntimeException(roe);
-		}
+        try {
+            Field field = Feature.class.getDeclaredField("name");
 
-		derivedField.setName(renamedName);
+            if (!field.isAccessible()) {
+                field.setAccessible(true);
+            }
 
-		addDerivedField(derivedField);
-	}
+            field.set(feature, renamedName);
+        } catch (ReflectiveOperationException roe) {
+            throw new RuntimeException(roe);
+        }
 
-	public void addTransformer(Model transformer){
-		this.transformers.add(transformer);
-	}
+        derivedField.setName(renamedName);
 
-	public UnivariateStats getUnivariateStats(FieldName name){
-		return this.univariateStats.get(name);
-	}
+        addDerivedField(derivedField);
+    }
 
-	public void putUnivariateStats(UnivariateStats univariateStats){
-		putUnivariateStats(univariateStats.getField(), univariateStats);
-	}
+    public void addTransformer(Model transformer) {
+        this.transformers.add(transformer);
+    }
 
-	public void putUnivariateStats(FieldName name, UnivariateStats univariateStats){
-		this.univariateStats.put(name, univariateStats);
-	}
+    public UnivariateStats getUnivariateStats(FieldName name) {
+        return this.univariateStats.get(name);
+    }
+
+    public void putUnivariateStats(UnivariateStats univariateStats) {
+        putUnivariateStats(univariateStats.getField(), univariateStats);
+    }
+
+    public void putUnivariateStats(FieldName name, UnivariateStats univariateStats) {
+        this.univariateStats.put(name, univariateStats);
+    }
 }

@@ -1,0 +1,9 @@
+build
+*.iml
+*.ipr
+*.iws
+*.ids
+shell.sh
+testShell.sh
+.idea/
+out/
